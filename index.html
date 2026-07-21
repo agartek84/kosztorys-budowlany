@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kalkulator kosztorysów budowlanych</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --panel:#fff; --border:#dbe1e6; --text:#1c2733; --muted:#6b7684;
+    --accent:#1d6fb8; --accent-dark:#155a94; --danger:#c0392b; --ok:#1f8a4c; --warn:#fff8e1; --warn-border:#e8c766;
+    --stale:#fdecea; --stale-border:#e8a49c;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:20px;}
+  h1{font-size:22px;margin:0 0 4px;}
+  h2{font-size:16px;margin:0 0 10px;color:var(--accent-dark);}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:16px;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px;}
+  .notice{background:var(--warn);border:1px solid var(--warn-border);border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;line-height:1.5;}
+  .stale-banner{background:var(--stale);border:1px solid var(--stale-border);border-radius:8px;padding:8px 14px;font-size:13px;margin-bottom:12px;}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px;}
+  label{font-size:13px;color:var(--muted);margin-right:4px;}
+  select, input[type=text], input[type=number], input[type=date]{
+    padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;background:#fff;color:var(--text);
+  }
+  input[type=number]{width:90px;}
+  button{
+    background:var(--accent);color:#fff;border:none;border-radius:5px;padding:7px 12px;font-size:13px;cursor:pointer;
+  }
+  button:hover{background:var(--accent-dark);}
+  button.secondary{background:#eef2f5;color:var(--text);border:1px solid var(--border);}
+  button.secondary:hover{background:#e2e8ed;}
+  button.danger{background:#fdecea;color:var(--danger);border:1px solid #f3c6c1;padding:4px 8px;}
+  button.danger:hover{background:#f9d6d1;}
+  button.tab-btn{background:#eef2f5;color:var(--text);border:1px solid var(--border);border-radius:20px;padding:7px 16px;}
+  button.tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent-dark);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{border:1px solid var(--border);padding:6px 8px;text-align:left;vertical-align:middle;}
+  th{background:#eef2f5;color:var(--muted);font-weight:600;}
+  td input[type=text]{width:100%;min-width:120px;}
+  tr.cat-row td{background:#e4ecf3;font-weight:700;color:var(--accent-dark);padding:5px 8px;}
+  .num{text-align:right;}
+  .totals{margin-top:12px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:14px;}
+  .totals .grand{font-size:18px;font-weight:700;color:var(--accent-dark);}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .history-item{display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid var(--border);font-size:13px;}
+  .history-item:last-child{border-bottom:none;}
+  .history-actions button{margin-left:6px;}
+  .small{font-size:12px;color:var(--muted);}
+  .update-panel{display:none;background:#f7faff;border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:10px;}
+  .update-panel.open{display:block;}
+  @media print{
+    body{background:#fff;padding:0;}
+    .no-print{display:none !important;}
+    .panel{border:none;padding:0;margin-bottom:10px;}
+  }
+</style>
+</head>
+<body>
+
+<h1>Kalkulator kosztorysów budowlanych</h1>
+<div class="sub">Wybierz zawód/branżę, województwo i wpisz ilości pozycji – program przeliczy kosztorys wg cennika robocizny + materiału.</div>
+
+<div class="notice no-print">
+  <strong>Skąd te ceny?</strong> Nie istnieje darmowe, ogólnodostępne API z aktualnymi cenami robocizny/materiału w Polsce
+  (bazy typu Sekocenbud / Intercenbud są płatne i zamknięte). Cenniki zostały wstępnie wypełnione orientacyjnymi widełkami
+  rynkowymi (2026), zróżnicowanymi wg województw. Wszystkie ceny są w pełni edytowalne, zapisują się automatycznie w tej
+  przeglądarce, a przyciskiem "Aktualizuj ceny" możesz szybko podnieść/obniżyć cały cennik danej branży o % zamiast poprawiać
+  każdą pozycję z osobna.
+</div>
+
+<div id="staleBanner" class="stale-banner no-print" style="display:none"></div>
+
+<div class="panel no-print">
+  <h2>Zawód / branża</h2>
+  <div class="row" id="tradeTabs"></div>
+  <div class="row">
+    <button class="secondary" onclick="addTrade()">+ Dodaj zawód</button>
+    <button class="secondary" onclick="renameTrade()">Zmień nazwę zawodu</button>
+    <button class="secondary" onclick="duplicateTrade()">Duplikuj zawód</button>
+    <button class="secondary" onclick="deleteTrade()">Usuń zawód</button>
+  </div>
+</div>
+
+<div class="panel no-print">
+  <h2>Województwo i cennik</h2>
+  <div class="row">
+    <label for="regionSelect">Województwo:</label>
+    <select id="regionSelect"></select>
+    <button class="secondary" onclick="addRegion()">+ Dodaj region</button>
+    <button class="secondary" onclick="renameRegion()">Zmień nazwę</button>
+    <button class="secondary" onclick="duplicateRegion()">Duplikuj</button>
+    <button class="secondary" onclick="deleteRegion()">Usuń region</button>
+    <button class="secondary" onclick="resetPricesForRegion()">Przywróć domyślny cennik (ten region)</button>
+    <button onclick="toggleUpdatePanel()">Aktualizuj ceny</button>
+  </div>
+  <div class="small">Ostatnia aktualizacja cennika tej branży: <strong id="lastUpdateLabel">—</strong></div>
+
+  <div id="updatePanel" class="update-panel">
+    <div class="row">
+      <label>Zmień ceny o:</label>
+      <input type="number" id="bulkPct" value="0" step="1" style="width:80px"> <span class="small">%</span>
+      <label>Zastosuj do:</label>
+      <select id="bulkTarget">
+        <option value="both">Robocizna + materiał</option>
+        <option value="labor">Tylko robocizna</option>
+        <option value="material">Tylko materiał</option>
+      </select>
+      <label>Zakres:</label>
+      <select id="bulkScope">
+        <option value="current">Tylko bieżący region</option>
+        <option value="all">Wszystkie regiony (ta branża)</option>
+      </select>
+      <button onclick="applyBulkUpdate()">Zastosuj zmianę</button>
+    </div>
+    <div class="small">
+      Np. wpisz <strong>5</strong> aby podnieść ceny o 5% (inflacja / wzrost cen materiałów), albo <strong>-5</strong> aby obniżyć.
+      Zmiana dotyczy tylko cennika aktualnie wybranej branży, zaokrągla ceny do pełnych złotych i zapisuje datę aktualizacji.
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Pozycje kosztorysu</h2>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:30%">Pozycja</th>
+        <th style="width:7%">Jedn.</th>
+        <th style="width:11%">Robocizna (netto)</th>
+        <th style="width:11%">Materiał (netto)</th>
+        <th style="width:9%">Razem/jedn.</th>
+        <th style="width:8%">Ilość</th>
+        <th style="width:11%">Wartość</th>
+        <th class="no-print" style="width:6%"></th>
+      </tr>
+    </thead>
+    <tbody id="itemsBody"></tbody>
+  </table>
+  <div class="toolbar no-print">
+    <button class="secondary" onclick="addItem()">+ Dodaj pozycję</button>
+    <button class="secondary" onclick="clearQuantities()">Wyczyść ilości</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Dane kosztorysu</h2>
+  <div class="row">
+    <label>Klient / obiekt:</label>
+    <input type="text" id="clientName" placeholder="np. Jan Kowalski, ul. Kwiatowa 5">
+    <label>Data:</label>
+    <input type="date" id="quoteDate">
+    <label>VAT:</label>
+    <select id="vatRate">
+      <option value="23">23%</option>
+      <option value="8">8%</option>
+      <option value="0">0% / zw.</option>
+    </select>
+    <label>Rabat %:</label>
+    <input type="number" id="discountPct" value="0" min="0" max="100" style="width:70px">
+  </div>
+
+  <div class="totals">
+    <div>Suma robocizny netto: <strong id="sumLabor">0,00 zł</strong></div>
+    <div>Suma materiału netto: <strong id="sumMaterial">0,00 zł</strong></div>
+    <div>Razem netto (po rabacie): <strong id="sumNetto">0,00 zł</strong></div>
+    <div>VAT: <strong id="sumVat">0,00 zł</strong></div>
+    <div class="grand">Razem brutto: <span id="sumBrutto">0,00 zł</span></div>
+  </div>
+
+  <div class="toolbar no-print">
+    <button onclick="saveQuote()">Zapisz kosztorys do historii</button>
+    <button class="secondary" onclick="window.print()">Drukuj / eksportuj do PDF</button>
+  </div>
+</div>
+
+<div class="panel no-print">
+  <h2>Historia zapisanych kosztorysów</h2>
+  <div id="historyList" class="small">Brak zapisanych kosztorysów.</div>
+</div>
+
+<script>
+const LS_TRADES='ke_trades_v3', LS_ITEMS='ke_items_v3', LS_PRICES='ke_prices_v3', LS_REGIONS='ke_regions_v3',
+      LS_HISTORY='ke_history', LS_LASTUPDATE='ke_last_update_v3';
+const DATA_VERSION='3';
+const LS_VERSION='ke_version';
+
+// Mnożnik dotyczy tylko robocizny (ceny materiału są zwykle zbliżone w całej Polsce, kupowane w tych samych hurtowniach)
+const VOIVODESHIP_MULTIPLIERS={
+  'Dolnośląskie':1.12, 'Kujawsko-Pomorskie':0.92, 'Lubelskie':0.85, 'Lubuskie':0.90,
+  'Łódzkie':0.95, 'Małopolskie':1.12, 'Mazowieckie':1.35, 'Opolskie':0.90,
+  'Podkarpackie':0.85, 'Podlaskie':0.85, 'Pomorskie':1.15, 'Śląskie':1.02,
+  'Świętokrzyskie':0.85, 'Warmińsko-Mazurskie':0.85, 'Wielkopolskie':1.05, 'Zachodniopomorskie':1.00,
+};
+
+// --- Domyślne branże i ich bazowe (krajowa średnia) pozycje kosztorysu ---
+const DEFAULT_TRADES=[
+  {id:'elektryk', name:'Elektryk'},
+  {id:'hydraulik', name:'Hydraulik'},
+  {id:'murarz', name:'Murarz'},
+  {id:'malarz', name:'Malarz'},
+  {id:'dekarz', name:'Dekarz'},
+  {id:'regipsy', name:'Regipsy i zabudowy G-K'},
+  {id:'ocieplenia', name:'Ocieplenia (elewacje)'},
+];
+
+const BASE_ITEMS_BY_TRADE={
+  elektryk: [
+    {id:'gniazdko', cat:'Punkty elektryczne', name:'Gniazdko / łącznik – biały montaż (bez kucia)', unit:'szt.', baseLabor:40, baseMaterial:15},
+    {id:'oswietlenie_bialy', cat:'Punkty elektryczne', name:'Punkt oświetleniowy – biały montaż (bez kucia)', unit:'szt.', baseLabor:40, baseMaterial:15},
+    {id:'punkt_pelny', cat:'Punkty elektryczne', name:'Punkt elektryczny pełny (kucie + przewód + puszka)', unit:'szt.', baseLabor:120, baseMaterial:35},
+    {id:'gniazdo_silowe', cat:'Punkty elektryczne', name:'Gniazdo siłowe / trójfazowe (400V)', unit:'szt.', baseLabor:160, baseMaterial:60},
+    {id:'gniazdo_rtv', cat:'Punkty elektryczne', name:'Gniazdo antenowe / RTV-SAT', unit:'szt.', baseLabor:40, baseMaterial:20},
+    {id:'gniazdo_lan', cat:'Punkty elektryczne', name:'Gniazdo internetowe / RJ45 (LAN)', unit:'szt.', baseLabor:45, baseMaterial:15},
+    {id:'instalacja_dzwonkowa', cat:'Punkty elektryczne', name:'Punkt instalacji dzwonkowej', unit:'szt.', baseLabor:55, baseMaterial:40},
+    {id:'montaz_oprawy', cat:'Oświetlenie', name:'Montaż oprawy oświetleniowej (materiał klienta)', unit:'szt.', baseLabor:35, baseMaterial:5},
+    {id:'montaz_zyrandola', cat:'Oświetlenie', name:'Montaż żyrandola / lampy wiszącej', unit:'szt.', baseLabor:60, baseMaterial:10},
+    {id:'czujnik_ruchu', cat:'Oświetlenie', name:'Montaż czujnika ruchu / zmierzchowego', unit:'szt.', baseLabor:45, baseMaterial:60},
+    {id:'obwod_rozdzielnia', cat:'Rozdzielnie i zabezpieczenia', name:'Podłączenie 1 obwodu w rozdzielni', unit:'obwód', baseLabor:45, baseMaterial:40},
+    {id:'rozdzielnia_baza', cat:'Rozdzielnie i zabezpieczenia', name:'Montaż rozdzielni – ryczałt bazowy (obudowa, szyna, uziemienie)', unit:'komplet', baseLabor:260, baseMaterial:150},
+    {id:'montaz_rcd', cat:'Rozdzielnie i zabezpieczenia', name:'Montaż wyłącznika różnicowoprądowego (RCD)', unit:'szt.', baseLabor:40, baseMaterial:80},
+    {id:'montaz_zabezpieczenia', cat:'Rozdzielnie i zabezpieczenia', name:'Montaż wyłącznika nadprądowego (bezpiecznik)', unit:'szt.', baseLabor:20, baseMaterial:25},
+    {id:'uziemienie', cat:'Rozdzielnie i zabezpieczenia', name:'Instalacja uziemiająca / odgromowa', unit:'mb', baseLabor:25, baseMaterial:15},
+    {id:'bruzda_miekka', cat:'Prace budowlane / bruzdy', name:'Bruzdowanie w cegle / gazobetonie', unit:'mb', baseLabor:10, baseMaterial:0},
+    {id:'bruzda_twarda', cat:'Prace budowlane / bruzdy', name:'Bruzdowanie w betonie / żelbecie', unit:'mb', baseLabor:55, baseMaterial:0},
+    {id:'podlaczenie_kuchenka', cat:'Podłączenia urządzeń', name:'Podłączenie kuchenki / płyty indukcyjnej', unit:'szt.', baseLabor:100, baseMaterial:20},
+    {id:'podlaczenie_bojler', cat:'Podłączenia urządzeń', name:'Podłączenie bojlera / podgrzewacza wody', unit:'szt.', baseLabor:90, baseMaterial:20},
+    {id:'wentylator_lazienkowy', cat:'Podłączenia urządzeń', name:'Podłączenie wentylatora łazienkowego', unit:'szt.', baseLabor:60, baseMaterial:0},
+    {id:'domofon', cat:'Podłączenia urządzeń', name:'Montaż domofonu / wideodomofonu', unit:'szt.', baseLabor:150, baseMaterial:250},
+    {id:'wallbox', cat:'Podłączenia urządzeń', name:'Montaż stacji ładowania EV (wallbox)', unit:'szt.', baseLabor:350, baseMaterial:100},
+    {id:'fotowoltaika_podlaczenie', cat:'Podłączenia urządzeń', name:'Podłączenie falownika instalacji PV', unit:'szt.', baseLabor:300, baseMaterial:0},
+    {id:'pomiar_ochrona', cat:'Pomiary i przeglądy', name:'Pomiar skuteczności ochrony przeciwporażeniowej', unit:'obwód', baseLabor:25, baseMaterial:0},
+    {id:'pomiar_izolacja', cat:'Pomiary i przeglądy', name:'Pomiar rezystancji izolacji', unit:'obwód', baseLabor:20, baseMaterial:0},
+    {id:'protokol_pomiarowy', cat:'Pomiary i przeglądy', name:'Protokół pomiarowy / przegląd instalacji', unit:'komplet', baseLabor:200, baseMaterial:0},
+    {id:'rbg_maszyny', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina – serwis maszyn przemysłowych', unit:'godz.', baseLabor:150, baseMaterial:0},
+    {id:'rbg_instalacje', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina – serwis instalacji elektrycznej', unit:'godz.', baseLabor:100, baseMaterial:0},
+    {id:'diagnostyka', cat:'Serwis i robocizna godzinowa', name:'Wyszukiwanie usterek / diagnostyka', unit:'godz.', baseLabor:120, baseMaterial:0},
+    {id:'pogotowie', cat:'Serwis i robocizna godzinowa', name:'Wyjazd awaryjny / pogotowie elektryczne (dodatek)', unit:'ryczałt', baseLabor:100, baseMaterial:0},
+    {id:'dojazd_miasto', cat:'Dojazd', name:'Dojazd do klienta (w obrębie miasta)', unit:'ryczałt', baseLabor:30, baseMaterial:0},
+    {id:'dojazd_km', cat:'Dojazd', name:'Dojazd do klienta poza miastem', unit:'km', baseLabor:2, baseMaterial:0},
+    {id:'wycena_ogledziny', cat:'Dojazd', name:'Wycena / oględziny na miejscu', unit:'ryczałt', baseLabor:50, baseMaterial:0},
+  ],
+  hydraulik: [
+    {id:'bateria_umywalkowa', cat:'Armatura i biały montaż', name:'Montaż baterii umywalkowej', unit:'szt.', baseLabor:110, baseMaterial:20},
+    {id:'bateria_wannowa', cat:'Armatura i biały montaż', name:'Montaż baterii wannowej / prysznicowej', unit:'szt.', baseLabor:150, baseMaterial:30},
+    {id:'montaz_umywalki', cat:'Armatura i biały montaż', name:'Montaż umywalki', unit:'szt.', baseLabor:90, baseMaterial:20},
+    {id:'montaz_zlewozmywaka', cat:'Armatura i biały montaż', name:'Montaż zlewozmywaka', unit:'szt.', baseLabor:100, baseMaterial:20},
+    {id:'montaz_miski_wc', cat:'Armatura i biały montaż', name:'Montaż miski WC / kompaktu (bez stelaża)', unit:'szt.', baseLabor:120, baseMaterial:30},
+    {id:'montaz_stelaza_wc', cat:'Armatura i biały montaż', name:'Montaż stelaża podtynkowego WC', unit:'szt.', baseLabor:150, baseMaterial:220},
+    {id:'montaz_brodzika_wanny', cat:'Armatura i biały montaż', name:'Montaż brodzika / wanny', unit:'szt.', baseLabor:200, baseMaterial:50},
+    {id:'podlaczenie_pralki_zmywarki', cat:'Armatura i biały montaż', name:'Podłączenie pralki / zmywarki (wod-kan)', unit:'szt.', baseLabor:80, baseMaterial:10},
+    {id:'zawor_odcinajacy', cat:'Armatura i biały montaż', name:'Montaż zaworu odcinającego', unit:'szt.', baseLabor:30, baseMaterial:15},
+    {id:'punkt_wod_kan', cat:'Instalacje wod-kan', name:'Punkt wodno-kanalizacyjny (podejście pod urządzenie)', unit:'punkt', baseLabor:220, baseMaterial:80},
+    {id:'wymiana_pionu', cat:'Instalacje wod-kan', name:'Wymiana pionu wodno-kanalizacyjnego', unit:'mb', baseLabor:90, baseMaterial:30},
+    {id:'montaz_rury', cat:'Instalacje wod-kan', name:'Ułożenie rury (PEX / miedź / PP)', unit:'mb', baseLabor:25, baseMaterial:15},
+    {id:'izolacja_rur', cat:'Instalacje wod-kan', name:'Izolacja termiczna rur', unit:'mb', baseLabor:10, baseMaterial:8},
+    {id:'udroznienie_kanalizacji', cat:'Instalacje wod-kan', name:'Udrożnienie kanalizacji', unit:'ryczałt', baseLabor:150, baseMaterial:0},
+    {id:'rozdzielacz_co', cat:'Ogrzewanie i CWU', name:'Montaż rozdzielacza C.O. / wody', unit:'szt.', baseLabor:120, baseMaterial:60},
+    {id:'montaz_kotla', cat:'Ogrzewanie i CWU', name:'Montaż kotła gazowego / pieca', unit:'szt.', baseLabor:450, baseMaterial:0},
+    {id:'montaz_grzejnika', cat:'Ogrzewanie i CWU', name:'Montaż grzejnika', unit:'szt.', baseLabor:150, baseMaterial:30},
+    {id:'zawor_termostatyczny', cat:'Ogrzewanie i CWU', name:'Montaż zaworu termostatycznego', unit:'szt.', baseLabor:40, baseMaterial:40},
+    {id:'diagnostyka_wyciekow', cat:'Serwis i robocizna godzinowa', name:'Wykrywanie i naprawa wycieków', unit:'godz.', baseLabor:130, baseMaterial:0},
+    {id:'rbg_hydraulik', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina – serwis hydrauliczny', unit:'godz.', baseLabor:130, baseMaterial:0},
+    {id:'dojazd_hydraulik', cat:'Dojazd', name:'Dojazd do klienta', unit:'ryczałt', baseLabor:60, baseMaterial:0},
+  ],
+  murarz: [
+    {id:'murowanie_dzialowa', cat:'Ściany i konstrukcje', name:'Murowanie ściany działowej', unit:'m2', baseLabor:65, baseMaterial:25},
+    {id:'murowanie_nosna', cat:'Ściany i konstrukcje', name:'Murowanie ściany nośnej / zewnętrznej', unit:'m2', baseLabor:150, baseMaterial:60},
+    {id:'strop', cat:'Ściany i konstrukcje', name:'Wykonanie stropu', unit:'m2', baseLabor:90, baseMaterial:70},
+    {id:'nadroze_wzmocnienie', cat:'Ściany i konstrukcje', name:'Nadproże / wzmocnienie otworu', unit:'szt.', baseLabor:150, baseMaterial:80},
+    {id:'tynk_tradycyjny', cat:'Tynki i posadzki', name:'Tynkowanie tradycyjne (ręczne)', unit:'m2', baseLabor:75, baseMaterial:20},
+    {id:'tynk_maszynowy', cat:'Tynki i posadzki', name:'Tynkowanie maszynowe', unit:'m2', baseLabor:60, baseMaterial:20},
+    {id:'wylewka_posadzka', cat:'Tynki i posadzki', name:'Wylewka betonowa / posadzka', unit:'m2', baseLabor:45, baseMaterial:35},
+    {id:'komin_kominek', cat:'Prace zewnętrzne', name:'Budowa komina / obudowy kominka', unit:'mb', baseLabor:120, baseMaterial:60},
+    {id:'kostka_brukowa', cat:'Prace zewnętrzne', name:'Układanie kostki brukowej', unit:'m2', baseLabor:55, baseMaterial:45},
+    {id:'schody_betonowe', cat:'Prace zewnętrzne', name:'Wykonanie schodów betonowych', unit:'stopień', baseLabor:100, baseMaterial:40},
+    {id:'rbg_murarz', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina murarza', unit:'godz.', baseLabor:110, baseMaterial:0},
+    {id:'dojazd_murarz', cat:'Dojazd', name:'Dojazd do klienta', unit:'ryczałt', baseLabor:50, baseMaterial:0},
+  ],
+  malarz: [
+    {id:'malowanie_scian', cat:'Malowanie', name:'Malowanie ścian (2 warstwy)', unit:'m2', baseLabor:32, baseMaterial:10},
+    {id:'malowanie_sufitow', cat:'Malowanie', name:'Malowanie sufitów', unit:'m2', baseLabor:28, baseMaterial:10},
+    {id:'malowanie_elewacji', cat:'Malowanie', name:'Malowanie elewacji (silikonowa/silikatowa)', unit:'m2', baseLabor:35, baseMaterial:15},
+    {id:'malowanie_dekoracyjne', cat:'Malowanie', name:'Malowanie dekoracyjne / strukturalne', unit:'m2', baseLabor:55, baseMaterial:20},
+    {id:'malowanie_stolarki', cat:'Malowanie', name:'Malowanie stolarki (drzwi / okno)', unit:'szt.', baseLabor:60, baseMaterial:15},
+    {id:'malowanie_grzejnika', cat:'Malowanie', name:'Malowanie grzejnika', unit:'szt.', baseLabor:40, baseMaterial:10},
+    {id:'tapetowanie', cat:'Malowanie', name:'Tapetowanie', unit:'m2', baseLabor:30, baseMaterial:5},
+    {id:'gruntowanie', cat:'Przygotowanie powierzchni', name:'Gruntowanie powierzchni', unit:'m2', baseLabor:8, baseMaterial:5},
+    {id:'szpachlowanie_gladz', cat:'Przygotowanie powierzchni', name:'Szpachlowanie / gładź gipsowa', unit:'m2', baseLabor:24, baseMaterial:10},
+    {id:'rbg_malarz', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina malarza', unit:'godz.', baseLabor:90, baseMaterial:0},
+    {id:'dojazd_malarz', cat:'Dojazd', name:'Dojazd do klienta', unit:'ryczałt', baseLabor:50, baseMaterial:0},
+  ],
+  dekarz: [
+    {id:'pokrycie_blachodachowka', cat:'Pokrycia dachowe', name:'Pokrycie dachu blachodachówką', unit:'m2', baseLabor:80, baseMaterial:55},
+    {id:'pokrycie_dachowka_ceramiczna', cat:'Pokrycia dachowe', name:'Pokrycie dachu dachówką ceramiczną/betonową', unit:'m2', baseLabor:95, baseMaterial:70},
+    {id:'papa_termozgrzewalna', cat:'Pokrycia dachowe', name:'Krycie papą termozgrzewalną', unit:'m2', baseLabor:45, baseMaterial:35},
+    {id:'membrana_wstepnego_krycia', cat:'Pokrycia dachowe', name:'Montaż membrany wstępnego krycia', unit:'m2', baseLabor:15, baseMaterial:12},
+    {id:'laty_kontrlaty', cat:'Pokrycia dachowe', name:'Montaż łat i kontrłat', unit:'m2', baseLabor:25, baseMaterial:20},
+    {id:'okno_dachowe', cat:'Pokrycia dachowe', name:'Montaż okna dachowego (bez ceny okna)', unit:'szt.', baseLabor:250, baseMaterial:150},
+    {id:'montaz_rynien', cat:'Rynny i obróbki', name:'Montaż rynien', unit:'mb', baseLabor:35, baseMaterial:40},
+    {id:'rury_spustowe', cat:'Rynny i obróbki', name:'Montaż rur spustowych', unit:'mb', baseLabor:30, baseMaterial:35},
+    {id:'obrobki_blacharskie', cat:'Rynny i obróbki', name:'Obróbki blacharskie (kominy, murki)', unit:'mb', baseLabor:45, baseMaterial:35},
+    {id:'naprawa_konserwacja_dachu', cat:'Serwis i robocizna godzinowa', name:'Naprawa / konserwacja pokrycia dachowego', unit:'godz.', baseLabor:120, baseMaterial:0},
+    {id:'rbg_dekarz', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina dekarza', unit:'godz.', baseLabor:120, baseMaterial:0},
+    {id:'dojazd_dekarz', cat:'Dojazd', name:'Dojazd do klienta', unit:'ryczałt', baseLabor:60, baseMaterial:0},
+  ],
+  regipsy: [
+    {id:'scianka_dzialowa_gk', cat:'Ścianki i sufity', name:'Ścianka działowa z płyt G-K', unit:'m2', baseLabor:100, baseMaterial:55},
+    {id:'sufit_podwieszany', cat:'Ścianki i sufity', name:'Sufit podwieszany', unit:'m2', baseLabor:65, baseMaterial:25},
+    {id:'zabudowa_wnek', cat:'Ścianki i sufity', name:'Zabudowa G-K (wnęka, obudowa)', unit:'m2', baseLabor:90, baseMaterial:40},
+    {id:'montaz_rusztu', cat:'Wykończenie i detale', name:'Montaż rusztu / profili CD/UD', unit:'m2', baseLabor:45, baseMaterial:20},
+    {id:'szpachlowanie_polaczen_gk', cat:'Wykończenie i detale', name:'Szpachlowanie połączeń płyt G-K', unit:'m2', baseLabor:20, baseMaterial:8},
+    {id:'izolacja_w_zabudowie', cat:'Wykończenie i detale', name:'Izolacja akustyczna/termiczna w zabudowie', unit:'m2', baseLabor:15, baseMaterial:15},
+    {id:'wyciecie_otworow', cat:'Wykończenie i detale', name:'Wycięcie otworów pod puszki / oświetlenie', unit:'szt.', baseLabor:15, baseMaterial:0},
+    {id:'rbg_karton_gips', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina montera G-K', unit:'godz.', baseLabor:100, baseMaterial:0},
+    {id:'dojazd_gk', cat:'Dojazd', name:'Dojazd do klienta', unit:'ryczałt', baseLabor:50, baseMaterial:0},
+  ],
+  ocieplenia: [
+    {id:'ocieplenie_styropian', cat:'Ocieplenie ścian', name:'Ocieplenie ścian styropianem', unit:'m2', baseLabor:145, baseMaterial:50},
+    {id:'ocieplenie_welna', cat:'Ocieplenie ścian', name:'Ocieplenie ścian wełną mineralną', unit:'m2', baseLabor:155, baseMaterial:70},
+    {id:'ocieplenie_stropodachu', cat:'Ocieplenie ścian', name:'Ocieplenie stropodachu / poddasza', unit:'m2', baseLabor:60, baseMaterial:40},
+    {id:'ocieplenie_fundamentow', cat:'Ocieplenie ścian', name:'Ocieplenie fundamentów (XPS)', unit:'m2', baseLabor:70, baseMaterial:45},
+    {id:'siatka_zbrojaca', cat:'Wykończenie elewacji', name:'Montaż siatki zbrojącej', unit:'m2', baseLabor:15, baseMaterial:12},
+    {id:'wyprawa_tynk', cat:'Wykończenie elewacji', name:'Tynk elewacyjny cienkowarstwowy', unit:'m2', baseLabor:45, baseMaterial:35},
+    {id:'gruntowanie_elewacji', cat:'Wykończenie elewacji', name:'Gruntowanie elewacji', unit:'m2', baseLabor:8, baseMaterial:6},
+    {id:'listwy_cokolowe', cat:'Wykończenie elewacji', name:'Montaż listew cokołowych', unit:'mb', baseLabor:20, baseMaterial:25},
+    {id:'malowanie_elewacji_ocieplenie', cat:'Wykończenie elewacji', name:'Malowanie elewacji (silikonowa/silikatowa)', unit:'m2', baseLabor:35, baseMaterial:18},
+    {id:'rbg_ocieplenia', cat:'Serwis i robocizna godzinowa', name:'Roboczogodzina – ocieplenia', unit:'godz.', baseLabor:120, baseMaterial:0},
+    {id:'dojazd_ocieplenia', cat:'Dojazd', name:'Dojazd do klienta', unit:'ryczałt', baseLabor:60, baseMaterial:0},
+  ],
+};
+
+const CATEGORY_ORDER=[
+  'Punkty elektryczne','Oświetlenie','Rozdzielnie i zabezpieczenia','Prace budowlane / bruzdy','Podłączenia urządzeń',
+  'Armatura i biały montaż','Instalacje wod-kan','Ogrzewanie i CWU',
+  'Ściany i konstrukcje','Tynki i posadzki','Prace zewnętrzne',
+  'Malowanie','Przygotowanie powierzchni',
+  'Pokrycia dachowe','Rynny i obróbki',
+  'Ścianki i sufity','Wykończenie i detale',
+  'Ocieplenie ścian','Wykończenie elewacji',
+  'Pomiary i przeglądy','Serwis i robocizna godzinowa','Dojazd','Inne'
+];
+
+function buildDefaultRegions(){ return Object.keys(VOIVODESHIP_MULTIPLIERS); }
+function buildDefaultItemsForTrade(tradeId){
+  const base = BASE_ITEMS_BY_TRADE[tradeId] || [];
+  return base.map(it=>({id:it.id, cat:it.cat, name:it.name, unit:it.unit}));
+}
+function buildDefaultPricesForTrade(tradeId){
+  const base = BASE_ITEMS_BY_TRADE[tradeId] || [];
+  const result={};
+  Object.keys(VOIVODESHIP_MULTIPLIERS).forEach(region=>{
+    result[region]={};
+    base.forEach(it=>{
+      result[region][it.id]={
+        labor: Math.round(it.baseLabor * VOIVODESHIP_MULTIPLIERS[region]),
+        material: it.baseMaterial
+      };
+    });
+  });
+  return result;
+}
+function slug(s){
+  return 'x_'+s.toLowerCase().replace(/[^a-z0-9ąćęłńóśźż]+/gi,'_').replace(/^_+|_+$/g,'')+'_'+Date.now().toString(36);
+}
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+// Migracja: poprzednia wersja obsługiwała tylko jedną branżę (elektryk) bez zakładek.
+if(localStorage.getItem(LS_VERSION) !== DATA_VERSION){
+  localStorage.removeItem(LS_TRADES);
+  localStorage.removeItem(LS_ITEMS);
+  localStorage.removeItem(LS_PRICES);
+  localStorage.removeItem(LS_REGIONS);
+  localStorage.removeItem(LS_LASTUPDATE);
+  const oldHistory = load(LS_HISTORY, []);
+  oldHistory.forEach(h=>{ if(!h.trade) h.trade='elektryk'; if(!h.tradeName) h.tradeName='Elektryk'; });
+  localStorage.setItem(LS_HISTORY, JSON.stringify(oldHistory));
+  localStorage.setItem(LS_VERSION, DATA_VERSION);
+}
+
+function load(key, fallback){
+  try{
+    const raw = localStorage.getItem(key);
+    if(!raw) return fallback;
+    return JSON.parse(raw);
+  }catch(e){ return fallback; }
+}
+
+let trades = load(LS_TRADES, JSON.parse(JSON.stringify(DEFAULT_TRADES)));
+let regions = load(LS_REGIONS, buildDefaultRegions());
+let items = load(LS_ITEMS, null) || (function(){
+  const o={}; trades.forEach(t=>{ o[t.id]=buildDefaultItemsForTrade(t.id); }); return o;
+})();
+let prices = load(LS_PRICES, null) || (function(){
+  const o={}; trades.forEach(t=>{ o[t.id]=buildDefaultPricesForTrade(t.id); }); return o;
+})();
+let lastUpdate = load(LS_LASTUPDATE, null) || (function(){
+  const o={}; trades.forEach(t=>{ o[t.id]=todayStr(); }); return o;
+})();
+let history = load(LS_HISTORY, []);
+let quantities = {};
+trades.forEach(t=>{ quantities[t.id]={}; });
+
+let currentTrade = trades[0].id;
+let currentRegion = regions.includes('Mazowieckie') ? 'Mazowieckie' : regions[0];
+
+function persist(){
+  localStorage.setItem(LS_TRADES, JSON.stringify(trades));
+  localStorage.setItem(LS_REGIONS, JSON.stringify(regions));
+  localStorage.setItem(LS_ITEMS, JSON.stringify(items));
+  localStorage.setItem(LS_PRICES, JSON.stringify(prices));
+  localStorage.setItem(LS_HISTORY, JSON.stringify(history));
+  localStorage.setItem(LS_LASTUPDATE, JSON.stringify(lastUpdate));
+}
+function fmt(n){
+  return (Math.round(n*100)/100).toLocaleString('pl-PL',{minimumFractionDigits:2, maximumFractionDigits:2})+' zł';
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function currentItems(){ return items[currentTrade] || (items[currentTrade]=[]); }
+function currentTradeObj(){ return trades.find(t=>t.id===currentTrade); }
+function currentQty(){ return quantities[currentTrade] || (quantities[currentTrade]={}); }
+
+function ensurePricesForRegion(region){
+  if(!prices[currentTrade]) prices[currentTrade]={};
+  if(!prices[currentTrade][region]) prices[currentTrade][region]={};
+  currentItems().forEach(it=>{
+    if(!prices[currentTrade][region][it.id]) prices[currentTrade][region][it.id]={labor:0, material:0};
+  });
+}
+
+// ---------- Zakładki (branże) ----------
+function renderTradeTabs(){
+  const el = document.getElementById('tradeTabs');
+  el.innerHTML='';
+  trades.forEach(t=>{
+    const btn=document.createElement('button');
+    btn.className='tab-btn'+(t.id===currentTrade?' active':'');
+    btn.textContent=t.name;
+    btn.onclick=()=>{ currentTrade=t.id; renderItems(); renderTradeTabs(); renderStaleBanner(); };
+    el.appendChild(btn);
+  });
+}
+function addTrade(){
+  const name = prompt('Nazwa nowego zawodu / branży:');
+  if(!name) return;
+  const id = slug(name);
+  trades.push({id, name});
+  items[id]=[];
+  prices[id]={};
+  quantities[id]={};
+  lastUpdate[id]=todayStr();
+  currentTrade=id;
+  persist();
+  renderTradeTabs();
+  renderItems();
+  renderStaleBanner();
+}
+function renameTrade(){
+  const t = currentTradeObj();
+  const name = prompt('Nowa nazwa dla zawodu "'+t.name+'":', t.name);
+  if(!name) return;
+  t.name = name;
+  persist();
+  renderTradeTabs();
+  renderHistory();
+}
+function duplicateTrade(){
+  const t = currentTradeObj();
+  const name = prompt('Nazwa kopii zawodu "'+t.name+'":', t.name+' (kopia)');
+  if(!name) return;
+  const id = slug(name);
+  trades.push({id, name});
+  items[id] = JSON.parse(JSON.stringify(items[currentTrade]||[]));
+  prices[id] = JSON.parse(JSON.stringify(prices[currentTrade]||{}));
+  quantities[id] = {};
+  lastUpdate[id] = lastUpdate[currentTrade] || todayStr();
+  currentTrade = id;
+  persist();
+  renderTradeTabs();
+  renderItems();
+  renderStaleBanner();
+}
+function deleteTrade(){
+  if(trades.length<=1){ alert('Musi zostać przynajmniej jeden zawód.'); return; }
+  const t = currentTradeObj();
+  if(!confirm('Usunąć zawód "'+t.name+'" wraz z jego cennikiem?')) return;
+  trades = trades.filter(x=>x.id!==currentTrade);
+  delete items[currentTrade];
+  delete prices[currentTrade];
+  delete quantities[currentTrade];
+  delete lastUpdate[currentTrade];
+  currentTrade = trades[0].id;
+  persist();
+  renderTradeTabs();
+  renderItems();
+  renderStaleBanner();
+}
+
+// ---------- Regiony (współdzielone między branżami) ----------
+function renderRegionSelect(){
+  const sel=document.getElementById('regionSelect');
+  sel.innerHTML='';
+  regions.forEach(r=>{
+    const o=document.createElement('option');
+    o.value=r; o.textContent=r;
+    if(r===currentRegion) o.selected=true;
+    sel.appendChild(o);
+  });
+}
+function addRegion(){
+  const name = prompt('Nazwa nowego regionu:');
+  if(!name || regions.includes(name)) return;
+  regions.push(name);
+  trades.forEach(t=>{
+    if(!prices[t.id]) prices[t.id]={};
+    prices[t.id][name] = JSON.parse(JSON.stringify(prices[t.id][currentRegion] || {}));
+  });
+  currentRegion = name;
+  persist();
+  renderRegionSelect();
+  renderItems();
+}
+function renameRegion(){
+  const name = prompt('Nowa nazwa dla regionu "'+currentRegion+'":', currentRegion);
+  if(!name || name===currentRegion) return;
+  const idx = regions.indexOf(currentRegion);
+  regions[idx]=name;
+  trades.forEach(t=>{
+    if(prices[t.id] && prices[t.id][currentRegion]!==undefined){
+      prices[t.id][name] = prices[t.id][currentRegion];
+      delete prices[t.id][currentRegion];
+    }
+  });
+  currentRegion=name;
+  persist();
+  renderRegionSelect();
+  renderItems();
+}
+function duplicateRegion(){
+  const name = prompt('Nazwa kopii regionu "'+currentRegion+'":', currentRegion+' (kopia)');
+  if(!name || regions.includes(name)) return;
+  regions.push(name);
+  trades.forEach(t=>{
+    if(!prices[t.id]) prices[t.id]={};
+    prices[t.id][name] = JSON.parse(JSON.stringify((prices[t.id]||{})[currentRegion] || {}));
+  });
+  currentRegion=name;
+  persist();
+  renderRegionSelect();
+  renderItems();
+}
+function deleteRegion(){
+  if(regions.length<=1){ alert('Musi zostać przynajmniej jeden region.'); return; }
+  if(!confirm('Usunąć region "'+currentRegion+'" wraz z cennikiem we wszystkich branżach?')) return;
+  regions = regions.filter(r=>r!==currentRegion);
+  trades.forEach(t=>{ if(prices[t.id]) delete prices[t.id][currentRegion]; });
+  currentRegion = regions[0];
+  persist();
+  renderRegionSelect();
+  renderItems();
+}
+function resetPricesForRegion(){
+  if(!confirm('Przywrócić domyślny cennik dla regionu "'+currentRegion+'" w branży "'+currentTradeObj().name+'"? Nadpisze obecne wartości.')) return;
+  const defaults = buildDefaultPricesForTrade(currentTrade);
+  if(!prices[currentTrade]) prices[currentTrade]={};
+  if(defaults[currentRegion]){
+    prices[currentTrade][currentRegion]=JSON.parse(JSON.stringify(defaults[currentRegion]));
+  } else {
+    prices[currentTrade][currentRegion]={};
+  }
+  currentItems().forEach(it=>{
+    if(!prices[currentTrade][currentRegion][it.id]) prices[currentTrade][currentRegion][it.id]={labor:0, material:0};
+  });
+  markUpdated();
+  persist();
+  renderItems();
+}
+
+// ---------- Kategorie / pozycje ----------
+function categoriesInUse(){
+  const present = new Set(currentItems().map(i=>i.cat || 'Inne'));
+  const ordered = CATEGORY_ORDER.filter(c=>present.has(c));
+  present.forEach(c=>{ if(!ordered.includes(c)) ordered.push(c); });
+  return ordered;
+}
+function renderItems(){
+  ensurePricesForRegion(currentRegion);
+  const body=document.getElementById('itemsBody');
+  body.innerHTML='';
+  const qty = currentQty();
+  categoriesInUse().forEach(cat=>{
+    const catItems = currentItems().filter(i=>(i.cat||'Inne')===cat);
+    if(catItems.length===0) return;
+    const catRow=document.createElement('tr');
+    catRow.className='cat-row';
+    catRow.innerHTML=`<td colspan="8">${escapeHtml(cat)}</td>`;
+    body.appendChild(catRow);
+    catItems.forEach(it=>{
+      const p = prices[currentTrade][currentRegion][it.id] || {labor:0, material:0};
+      const q = qty[it.id] || 0;
+      const tr=document.createElement('tr');
+      tr.innerHTML=`
+        <td><input type="text" value="${escapeHtml(it.name)}" onchange="updateItemName('${it.id}', this.value)"></td>
+        <td><input type="text" value="${escapeHtml(it.unit)}" style="width:60px" onchange="updateItemUnit('${it.id}', this.value)"></td>
+        <td class="num"><input type="number" min="0" step="1" value="${p.labor}" onchange="updatePrice('${it.id}','labor', this.value)"></td>
+        <td class="num"><input type="number" min="0" step="1" value="${p.material}" onchange="updatePrice('${it.id}','material', this.value)"></td>
+        <td class="num">${fmt((Number(p.labor)||0)+(Number(p.material)||0))}</td>
+        <td class="num"><input type="number" min="0" step="1" value="${q}" onchange="updateQty('${it.id}', this.value)"></td>
+        <td class="num">${fmt(((Number(p.labor)||0)+(Number(p.material)||0))*q)}</td>
+        <td class="no-print"><button class="danger" onclick="removeItem('${it.id}')">Usuń</button></td>
+      `;
+      body.appendChild(tr);
+    });
+  });
+  renderTotals();
+}
+function updateItemName(id, val){
+  const it=currentItems().find(i=>i.id===id); if(it){ it.name=val; persist(); }
+}
+function updateItemUnit(id, val){
+  const it=currentItems().find(i=>i.id===id); if(it){ it.unit=val; persist(); renderItems(); }
+}
+function updatePrice(id, field, val){
+  ensurePricesForRegion(currentRegion);
+  prices[currentTrade][currentRegion][id][field]=Number(val)||0;
+  markUpdated();
+  persist();
+  renderItems();
+}
+function updateQty(id, val){
+  currentQty()[id]=Number(val)||0;
+  renderItems();
+}
+function removeItem(id){
+  if(!confirm('Usunąć tę pozycję z cennika?')) return;
+  items[currentTrade] = currentItems().filter(i=>i.id!==id);
+  Object.keys(prices[currentTrade]||{}).forEach(r=>{ delete prices[currentTrade][r][id]; });
+  delete currentQty()[id];
+  persist();
+  renderItems();
+}
+function addItem(){
+  const name = prompt('Nazwa nowej pozycji:', 'Nowa pozycja');
+  if(!name) return;
+  const cat = prompt('Kategoria (np. Malowanie, Serwis i robocizna godzinowa, Inne):', 'Inne') || 'Inne';
+  const unit = prompt('Jednostka (np. szt., m2, mb, godz., ryczałt):', 'szt.') || 'szt.';
+  const labor = Number(prompt('Cena robocizny netto dla regionu "'+currentRegion+'":', '0')) || 0;
+  const material = Number(prompt('Cena materiału netto:', '0')) || 0;
+  const id = slug(name);
+  items[currentTrade].push({id, cat, name, unit});
+  regions.forEach(r=>{
+    if(!prices[currentTrade]) prices[currentTrade]={};
+    if(!prices[currentTrade][r]) prices[currentTrade][r]={};
+    prices[currentTrade][r][id] = {labor, material};
+  });
+  markUpdated();
+  persist();
+  renderItems();
+}
+function clearQuantities(){
+  quantities[currentTrade]={};
+  renderItems();
+}
+
+function renderTotals(){
+  ensurePricesForRegion(currentRegion);
+  let sumLabor=0, sumMaterial=0;
+  const qty = currentQty();
+  currentItems().forEach(it=>{
+    const p=prices[currentTrade][currentRegion][it.id]||{labor:0,material:0};
+    const q=qty[it.id]||0;
+    sumLabor += (Number(p.labor)||0)*q;
+    sumMaterial += (Number(p.material)||0)*q;
+  });
+  const discount = Number(document.getElementById('discountPct').value)||0;
+  const vatRate = Number(document.getElementById('vatRate').value)||0;
+  const rawNetto = sumLabor+sumMaterial;
+  const netto = rawNetto * (1 - discount/100);
+  const vat = netto * (vatRate/100);
+  const brutto = netto + vat;
+
+  document.getElementById('sumLabor').textContent=fmt(sumLabor);
+  document.getElementById('sumMaterial').textContent=fmt(sumMaterial);
+  document.getElementById('sumNetto').textContent=fmt(netto);
+  document.getElementById('sumVat').textContent=fmt(vat);
+  document.getElementById('sumBrutto').textContent=fmt(brutto);
+}
+
+// ---------- Aktualizacja cen ----------
+function markUpdated(){
+  lastUpdate[currentTrade] = todayStr();
+  renderStaleBanner();
+}
+function toggleUpdatePanel(){
+  document.getElementById('updatePanel').classList.toggle('open');
+}
+function applyBulkUpdate(){
+  const pct = Number(document.getElementById('bulkPct').value)||0;
+  const target = document.getElementById('bulkTarget').value;
+  const scope = document.getElementById('bulkScope').value;
+  if(pct===0){ alert('Podaj wartość procentową różną od zera (np. 5 lub -5).'); return; }
+  const regionsToUpdate = scope==='all' ? regions : [currentRegion];
+  regionsToUpdate.forEach(r=>{
+    ensurePricesForRegion(r);
+    currentItems().forEach(it=>{
+      const p = prices[currentTrade][r][it.id];
+      if(target==='labor' || target==='both') p.labor = Math.max(0, Math.round(p.labor*(1+pct/100)));
+      if(target==='material' || target==='both') p.material = Math.max(0, Math.round(p.material*(1+pct/100)));
+    });
+  });
+  markUpdated();
+  persist();
+  renderItems();
+  alert('Zaktualizowano ceny o '+pct+'% w branży "'+currentTradeObj().name+'" dla: '+(scope==='all' ? 'wszystkich regionów' : currentRegion));
+}
+function renderStaleBanner(){
+  const lu = lastUpdate[currentTrade] || todayStr();
+  document.getElementById('lastUpdateLabel').textContent = lu;
+  const days = Math.floor((Date.now() - new Date(lu).getTime())/86400000);
+  const banner = document.getElementById('staleBanner');
+  if(days > 90){
+    banner.style.display='block';
+    banner.textContent = 'Cennik branży "'+currentTradeObj().name+'" nie był aktualizowany od '+days+' dni. Warto sprawdzić aktualne stawki i skorygować ceny przyciskiem "Aktualizuj ceny".';
+  } else {
+    banner.style.display='none';
+  }
+  persist();
+}
+
+// ---------- Historia kosztorysów ----------
+function saveQuote(){
+  ensurePricesForRegion(currentRegion);
+  const client = document.getElementById('clientName').value || '(bez nazwy)';
+  const date = document.getElementById('quoteDate').value || todayStr();
+  const vatRate = document.getElementById('vatRate').value;
+  const discount = document.getElementById('discountPct').value;
+  const qty = currentQty();
+  const lines = currentItems().map(it=>({
+    id: it.id, name: it.name, unit: it.unit,
+    labor: prices[currentTrade][currentRegion][it.id].labor,
+    material: prices[currentTrade][currentRegion][it.id].material,
+    qty: qty[it.id]||0
+  })).filter(l=>l.qty>0);
+
+  const entry = {
+    id: Date.now(),
+    client, date, trade: currentTrade, tradeName: currentTradeObj().name, region: currentRegion, vatRate, discount, lines,
+    totalBrutto: document.getElementById('sumBrutto').textContent
+  };
+  history.unshift(entry);
+  persist();
+  renderHistory();
+  alert('Kosztorys zapisany w historii.');
+}
+function renderHistory(){
+  const el=document.getElementById('historyList');
+  if(history.length===0){ el.textContent='Brak zapisanych kosztorysów.'; return; }
+  el.innerHTML='';
+  history.forEach(h=>{
+    const div=document.createElement('div');
+    div.className='history-item';
+    const tradeName = h.tradeName || h.trade || '';
+    div.innerHTML=`
+      <span>${escapeHtml(h.client)} — ${h.date} — ${escapeHtml(tradeName)} — ${escapeHtml(h.region)} — <strong>${h.totalBrutto}</strong></span>
+      <span class="history-actions">
+        <button class="secondary" onclick="loadQuote(${h.id})">Wczytaj</button>
+        <button class="danger" onclick="deleteQuote(${h.id})">Usuń</button>
+      </span>
+    `;
+    el.appendChild(div);
+  });
+}
+function loadQuote(id){
+  const h = history.find(x=>x.id===id);
+  if(!h) return;
+  document.getElementById('clientName').value = h.client==='(bez nazwy)' ? '' : h.client;
+  document.getElementById('quoteDate').value = h.date;
+  document.getElementById('vatRate').value = h.vatRate;
+  document.getElementById('discountPct').value = h.discount;
+  if(h.trade && trades.some(t=>t.id===h.trade)) currentTrade = h.trade;
+  if(regions.includes(h.region)) currentRegion = h.region;
+  quantities[currentTrade] = {};
+  h.lines.forEach(l=>{ quantities[currentTrade][l.id] = l.qty; });
+  renderTradeTabs();
+  renderRegionSelect();
+  renderItems();
+  renderStaleBanner();
+  window.scrollTo(0,0);
+}
+function deleteQuote(id){
+  if(!confirm('Usunąć ten zapisany kosztorys?')) return;
+  history = history.filter(x=>x.id!==id);
+  persist();
+  renderHistory();
+}
+
+document.getElementById('regionSelect').addEventListener('change', e=>{
+  currentRegion = e.target.value;
+  renderItems();
+  renderStaleBanner();
+});
+document.getElementById('vatRate').addEventListener('change', renderTotals);
+document.getElementById('discountPct').addEventListener('input', renderTotals);
+document.getElementById('quoteDate').value = todayStr();
+
+renderTradeTabs();
+renderRegionSelect();
+renderItems();
+renderHistory();
+renderStaleBanner();
+persist();
+</script>
+</body>
+</html>
