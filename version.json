@@ -1,6 +1,6 @@
 {
-  "version": "1.2.0",
+  "version": "1.3.0",
   "releasedAt": "2026-07-23",
-  "notes": "Naprawiony eksport do PDF na Windows (natywny dialog zapisu), przyciski eksportu/importu danych przeniesione obok Zapisz/Drukuj.",
+  "notes": "Poprawiona czytelność nazw pozycji na telefonie (pełny tekst zamiast ucięcia), osobny przycisk edycji nazwy, krótki opis pozycji po kliknięciu, usunięcie zbędnego tekstu z eksportu PDF.",
   "downloadInfo": "Poproś Claude o zbudowanie nowej wersji instalatora Windows / APK / AAB."
 }
