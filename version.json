@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "releasedAt": "2026-07-23",
-  "notes": "Eksport/import danych do pliku, numer wersji i sprawdzanie aktualizacji.",
+  "notes": "Naprawiony eksport do PDF na Windows (natywny dialog zapisu), przyciski eksportu/importu danych przeniesione obok Zapisz/Drukuj.",
   "downloadInfo": "Poproś Claude o zbudowanie nowej wersji instalatora Windows / APK / AAB."
 }

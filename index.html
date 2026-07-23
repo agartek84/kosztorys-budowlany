@@ -168,9 +168,18 @@
     <div class="grand">Razem brutto: <span id="sumBrutto">0,00 zł</span></div>
   </div>
 
+  <div class="small">
+    Kosztorys zapisany przyciskiem "Zapisz kosztorys do historii" trafia do wewnętrznej pamięci przeglądarki/aplikacji
+    (tzw. localStorage) na tym urządzeniu — nigdzie indziej, nigdy nie jest wysyłany donikąd (w tym na GitHub).
+    Żeby mieć realny plik, który możesz zapisać gdziekolwiek chcesz (na pendrive, w chmurze, w wybranym folderze),
+    użyj eksportu danych poniżej.
+  </div>
   <div class="toolbar no-print">
     <button onclick="saveQuote()">Zapisz kosztorys do historii</button>
-    <button class="secondary" onclick="window.print()">Drukuj / eksportuj do PDF</button>
+    <button class="secondary" onclick="exportOrPrint()">Drukuj / eksportuj do PDF</button>
+    <button class="secondary" onclick="exportDataToFile()">Eksportuj dane do pliku (kopia zapasowa)</button>
+    <button class="secondary" onclick="document.getElementById('importFileInput').click()">Importuj dane z pliku</button>
+    <input type="file" id="importFileInput" accept="application/json,.json" style="display:none" onchange="importDataFromFile(event)">
   </div>
 </div>
 
@@ -180,19 +189,8 @@
 </div>
 
 <div class="panel no-print">
-  <h2>Dane i aktualizacje</h2>
+  <h2>Wersja i aktualizacje</h2>
   <div class="small">
-    Kosztorys zapisany przyciskiem "Zapisz kosztorys do historii" trafia do wewnętrznej pamięci przeglądarki/aplikacji
-    (tzw. localStorage) na tym urządzeniu — nie do zwykłego pliku, więc nie zobaczysz go w Eksploratorze plików.
-    Żeby mieć realny plik, który możesz zapisać gdziekolwiek chcesz (na pendrive, w chmurze, w wybranym folderze),
-    użyj eksportu poniżej.
-  </div>
-  <div class="row" style="margin-top:10px">
-    <button onclick="exportDataToFile()">Eksportuj dane do pliku (kopia zapasowa)</button>
-    <button class="secondary" onclick="document.getElementById('importFileInput').click()">Importuj dane z pliku</button>
-    <input type="file" id="importFileInput" accept="application/json,.json" style="display:none" onchange="importDataFromFile(event)">
-  </div>
-  <div class="small" style="margin-top:16px">
     Wersja aplikacji: <strong id="appVersionLabel"></strong>
     <button class="secondary" onclick="checkForUpdates()" style="margin-left:8px">Sprawdź aktualizacje</button>
   </div>
@@ -200,7 +198,7 @@
 </div>
 
 <script>
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const VERSION_CHECK_URL = 'https://agartek84.github.io/kosztorys-budowlany/version.json';
 
 const LS_TRADES='ke_trades_v3', LS_ITEMS='ke_items_v3', LS_PRICES='ke_prices_v3', LS_REGIONS='ke_regions_v3',
@@ -827,6 +825,17 @@ document.getElementById('regionSelect').addEventListener('change', e=>{
 document.getElementById('vatRate').addEventListener('change', renderTotals);
 document.getElementById('discountPct').addEventListener('input', renderTotals);
 document.getElementById('quoteDate').value = todayStr();
+
+// ---------- Drukowanie / eksport do PDF ----------
+function exportOrPrint(){
+  // Electron (aplikacja Windows) nie ma wbudowanego podglądu wydruku Chrome —
+  // zamiast window.print() korzystamy z natywnego eksportu do PDF z wyborem miejsca zapisu.
+  if(window.electronAPI && window.electronAPI.exportPdf){
+    window.electronAPI.exportPdf();
+  } else {
+    window.print();
+  }
+}
 
 // ---------- Eksport / import danych do pliku ----------
 function collectAllData(){
