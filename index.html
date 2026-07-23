@@ -179,7 +179,30 @@
   <div id="historyList" class="small">Brak zapisanych kosztorysów.</div>
 </div>
 
+<div class="panel no-print">
+  <h2>Dane i aktualizacje</h2>
+  <div class="small">
+    Kosztorys zapisany przyciskiem "Zapisz kosztorys do historii" trafia do wewnętrznej pamięci przeglądarki/aplikacji
+    (tzw. localStorage) na tym urządzeniu — nie do zwykłego pliku, więc nie zobaczysz go w Eksploratorze plików.
+    Żeby mieć realny plik, który możesz zapisać gdziekolwiek chcesz (na pendrive, w chmurze, w wybranym folderze),
+    użyj eksportu poniżej.
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button onclick="exportDataToFile()">Eksportuj dane do pliku (kopia zapasowa)</button>
+    <button class="secondary" onclick="document.getElementById('importFileInput').click()">Importuj dane z pliku</button>
+    <input type="file" id="importFileInput" accept="application/json,.json" style="display:none" onchange="importDataFromFile(event)">
+  </div>
+  <div class="small" style="margin-top:16px">
+    Wersja aplikacji: <strong id="appVersionLabel"></strong>
+    <button class="secondary" onclick="checkForUpdates()" style="margin-left:8px">Sprawdź aktualizacje</button>
+  </div>
+  <div id="updateCheckResult" class="small" style="margin-top:6px"></div>
+</div>
+
 <script>
+const APP_VERSION = '1.1.0';
+const VERSION_CHECK_URL = 'https://agartek84.github.io/kosztorys-budowlany/version.json';
+
 const LS_TRADES='ke_trades_v3', LS_ITEMS='ke_items_v3', LS_PRICES='ke_prices_v3', LS_REGIONS='ke_regions_v3',
       LS_HISTORY='ke_history', LS_LASTUPDATE='ke_last_update_v3';
 const DATA_VERSION='3';
@@ -804,6 +827,112 @@ document.getElementById('regionSelect').addEventListener('change', e=>{
 document.getElementById('vatRate').addEventListener('change', renderTotals);
 document.getElementById('discountPct').addEventListener('input', renderTotals);
 document.getElementById('quoteDate').value = todayStr();
+
+// ---------- Eksport / import danych do pliku ----------
+function collectAllData(){
+  return {
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    trades, regions, items, prices, history, lastUpdate
+  };
+}
+async function exportDataToFile(){
+  const data = collectAllData();
+  const json = JSON.stringify(data, null, 2);
+  const filename = 'kosztorys-dane-'+todayStr()+'.json';
+
+  if(window.showSaveFilePicker){
+    try{
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'Plik danych JSON', accept: {'application/json': ['.json']} }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(json);
+      await writable.close();
+      alert('Dane wyeksportowane do pliku: '+handle.name);
+      return;
+    }catch(e){
+      if(e.name === 'AbortError') return; // użytkownik anulował okno zapisu
+      // jeśli showSaveFilePicker zawiedzie z innego powodu, spadamy do zwykłego pobierania poniżej
+    }
+  }
+
+  const blob = new Blob([json], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function importDataFromFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try{ data = JSON.parse(reader.result); }
+    catch(e){ alert('Nie udało się odczytać pliku — to nie jest poprawny plik danych tej aplikacji.'); return; }
+    if(!data || !Array.isArray(data.trades)){
+      alert('Ten plik nie zawiera danych kosztorysu.');
+      return;
+    }
+    if(!confirm('To nadpisze WSZYSTKIE obecne dane (cenniki, historię) danymi z pliku'+(data.exportedAt?(' (eksport z '+data.exportedAt.slice(0,10)+')'):'')+'. Kontynuować?')) return;
+
+    trades = data.trades;
+    regions = data.regions || buildDefaultRegions();
+    items = data.items || {};
+    prices = data.prices || {};
+    history = data.history || [];
+    lastUpdate = data.lastUpdate || {};
+    quantities = {};
+    trades.forEach(t=>{ quantities[t.id]={}; });
+    currentTrade = trades[0].id;
+    currentRegion = regions.includes('Mazowieckie') ? 'Mazowieckie' : regions[0];
+
+    persist();
+    renderTradeTabs();
+    renderRegionSelect();
+    renderItems();
+    renderHistory();
+    renderStaleBanner();
+    event.target.value = '';
+    alert('Dane zaimportowane pomyślnie.');
+  };
+  reader.readAsText(file);
+}
+
+// ---------- Wersja i aktualizacje ----------
+function isNewerVersion(remote, local){
+  const r = String(remote).split('.').map(Number);
+  const l = String(local).split('.').map(Number);
+  for(let i=0;i<Math.max(r.length,l.length);i++){
+    const rv = r[i]||0, lv = l[i]||0;
+    if(rv>lv) return true;
+    if(rv<lv) return false;
+  }
+  return false;
+}
+async function checkForUpdates(){
+  const el = document.getElementById('updateCheckResult');
+  el.textContent = 'Sprawdzanie...';
+  try{
+    const res = await fetch(VERSION_CHECK_URL, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const info = await res.json();
+    if(isNewerVersion(info.version, APP_VERSION)){
+      el.innerHTML = 'Dostępna nowsza wersja <strong>'+escapeHtml(info.version)+'</strong> (masz '+APP_VERSION+'). '
+        + (info.notes ? escapeHtml(info.notes)+' ' : '')
+        + (info.downloadInfo ? escapeHtml(info.downloadInfo) : 'Poproś Claude o zbudowanie nowej wersji instalatora/APK.');
+    } else {
+      el.textContent = 'Masz najnowszą wersję ('+APP_VERSION+').';
+    }
+  }catch(e){
+    el.textContent = 'Nie udało się sprawdzić aktualizacji (brak internetu albo serwer niedostępny).';
+  }
+}
+
+document.getElementById('appVersionLabel').textContent = APP_VERSION;
 
 renderTradeTabs();
 renderRegionSelect();
