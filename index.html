@@ -56,17 +56,39 @@
   .small{font-size:12px;color:var(--muted);}
   .update-panel{display:none;background:#f7faff;border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:10px;}
   .update-panel.open{display:block;}
+  textarea{width:100%;padding:8px;border:1px solid var(--border);border-radius:5px;font-size:13px;font-family:inherit;resize:vertical;}
+  .toast-container{position:fixed;bottom:20px;right:20px;z-index:200;display:flex;flex-direction:column;gap:8px;max-width:90vw;}
+  .toast{background:#1c2733;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,0.25);opacity:0;transform:translateY(10px);transition:opacity 0.25s, transform 0.25s;max-width:320px;}
+  .toast.show{opacity:1;transform:translateY(0);}
+  .toast.toast-error{background:var(--danger);}
+  .print-only{display:none;}
+  .ps-header{display:flex;align-items:center;gap:16px;margin-bottom:14px;}
+  .ps-logo{max-height:70px;max-width:160px;object-fit:contain;}
+  .ps-company{font-size:13px;line-height:1.5;}
+  .ps-title{font-size:20px;margin:6px 0 14px;}
+  .ps-meta{font-size:13px;margin-bottom:16px;line-height:1.7;}
+  .ps-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:18px;}
+  .ps-table th,.ps-table td{border:1px solid #999;padding:6px 8px;text-align:left;}
+  .ps-table th{background:#eee;}
+  .ps-table td.num{text-align:right;}
+  .ps-trade{color:#666;font-size:11px;}
+  .ps-totals{font-size:14px;text-align:right;line-height:1.7;}
+  .ps-grand{font-size:18px;font-weight:700;}
+  .ps-notes{margin-top:18px;font-size:13px;border-top:1px solid #ccc;padding-top:10px;white-space:pre-wrap;}
   @media print{
     body{background:#fff;padding:0;}
     .no-print{display:none !important;}
+    .print-only{display:block;}
     .panel{border:none;padding:0;margin-bottom:10px;}
   }
 </style>
 </head>
 <body>
 
-<h1>Kalkulator kosztorysów budowlanych</h1>
-<div class="sub">Wybierz zawód/branżę, województwo i wpisz ilości pozycji – program przeliczy kosztorys wg cennika robocizny + materiału.</div>
+<h1 class="no-print">Kalkulator kosztorysów budowlanych</h1>
+<div class="sub no-print">Wybierz zawód/branżę, województwo i wpisz ilości pozycji – program przeliczy kosztorys wg cennika robocizny + materiału.</div>
+<div id="toastContainer" class="toast-container no-print"></div>
+<div id="printSummary" class="print-only"></div>
 
 <div class="notice no-print">
   <strong>Skąd te ceny?</strong> Nie istnieje darmowe, ogólnodostępne API z aktualnymi cenami robocizny/materiału w Polsce
@@ -77,6 +99,31 @@
 </div>
 
 <div id="staleBanner" class="stale-banner no-print" style="display:none"></div>
+
+<div class="panel no-print">
+  <h2>Dane Twojej firmy (widoczne na wydruku kosztorysu)</h2>
+  <div class="row">
+    <label>Nazwa firmy:</label>
+    <input type="text" id="companyName" placeholder="np. Usługi Elektryczne Jan Kowalski" style="min-width:220px">
+    <label>NIP:</label>
+    <input type="text" id="companyNip" placeholder="000-000-00-00" style="width:140px">
+  </div>
+  <div class="row">
+    <label>Telefon:</label>
+    <input type="text" id="companyPhone" placeholder="000 000 000" style="width:140px">
+    <label>Adres:</label>
+    <input type="text" id="companyAddress" placeholder="ul. Przykładowa 1, 00-000 Miasto" style="min-width:260px">
+  </div>
+  <div class="row">
+    <label>Logo:</label>
+    <input type="file" id="companyLogoInput" accept="image/*" onchange="handleLogoUpload(event)">
+    <img id="companyLogoPreview" style="display:none;max-height:50px;max-width:120px;border:1px solid var(--border);border-radius:4px;padding:2px;">
+    <button class="secondary" onclick="removeLogo()">Usuń logo</button>
+  </div>
+  <div class="toolbar">
+    <button onclick="saveCompanyInfo()">Zapisz dane firmy</button>
+  </div>
+</div>
 
 <div class="panel no-print">
   <h2>Zawód / branża</h2>
@@ -127,8 +174,11 @@
   </div>
 </div>
 
-<div class="panel">
+<div class="panel no-print">
   <h2>Pozycje kosztorysu</h2>
+  <div class="row">
+    <input type="text" id="itemSearch" placeholder="Szukaj pozycji..." style="flex:1;min-width:200px" oninput="renderItems()">
+  </div>
   <div class="table-scroll">
     <table>
       <thead>
@@ -140,25 +190,55 @@
           <th style="width:9%">Razem/jedn.</th>
           <th style="width:8%">Ilość</th>
           <th style="width:11%">Wartość</th>
-          <th class="no-print" style="width:6%"></th>
+          <th style="width:9%"></th>
         </tr>
       </thead>
       <tbody id="itemsBody"></tbody>
     </table>
   </div>
-  <div class="toolbar no-print">
+  <div class="toolbar">
     <button class="secondary" onclick="addItem()">+ Dodaj pozycję</button>
     <button class="secondary" onclick="clearQuantities()">Wyczyść ilości</button>
   </div>
 </div>
 
-<div class="panel">
+<div class="panel no-print" id="combinedLinesPanel" style="display:none">
+  <h2>Kosztorys zbiorczy — dodane pozycje</h2>
+  <div class="small">
+    Pozycje dodane z różnych branż przyciskiem "➕" w cenniku powyżej. Liczone w podsumowaniu i na wydruku, gdy tryb
+    kosztorysu (w sekcji "Dane kosztorysu") jest ustawiony na "Zbiorczy".
+  </div>
+  <div class="table-scroll" style="margin-top:10px">
+    <table>
+      <thead>
+        <tr><th>Branża</th><th>Pozycja</th><th>Jedn.</th><th class="num">Cena jedn.</th><th class="num">Ilość</th><th class="num">Wartość</th><th></th></tr>
+      </thead>
+      <tbody id="combinedLinesBody"></tbody>
+    </table>
+  </div>
+  <div class="toolbar">
+    <button class="secondary" onclick="clearCombinedLines()">Wyczyść zbiorczy kosztorys</button>
+  </div>
+</div>
+
+<div class="panel no-print">
   <h2>Dane kosztorysu</h2>
+  <div class="row">
+    <label>Tryb kosztorysu:</label>
+    <button id="modeSingleBtn" class="tab-btn active" onclick="setQuoteMode('single')">Pojedyncza branża</button>
+    <button id="modeCombinedBtn" class="tab-btn" onclick="setQuoteMode('combined')">Zbiorczy (wiele branż)</button>
+  </div>
   <div class="row">
     <label>Klient / obiekt:</label>
     <input type="text" id="clientName" placeholder="np. Jan Kowalski, ul. Kwiatowa 5">
     <label>Data:</label>
     <input type="date" id="quoteDate">
+    <label>Nr kosztorysu:</label>
+    <input type="text" id="quoteNumber" placeholder="np. K/2026/001" style="width:130px">
+    <label>Ważny do:</label>
+    <input type="date" id="validUntil">
+  </div>
+  <div class="row">
     <label>VAT:</label>
     <select id="vatRate">
       <option value="23">23%</option>
@@ -177,13 +257,18 @@
     <div class="grand">Razem brutto: <span id="sumBrutto">0,00 zł</span></div>
   </div>
 
-  <div class="small no-print">
+  <div class="row" style="margin-top:12px">
+    <label style="width:100%">Uwagi / warunki płatności (widoczne na wydruku):</label>
+  </div>
+  <textarea id="notesText" rows="3" placeholder="np. Płatność przelewem w ciągu 7 dni od wykonania usługi. Gwarancja 24 miesiące."></textarea>
+
+  <div class="small" style="margin-top:10px">
     Kosztorys zapisany przyciskiem "Zapisz kosztorys do historii" trafia do wewnętrznej pamięci przeglądarki/aplikacji
     (tzw. localStorage) na tym urządzeniu — nigdzie indziej, nigdy nie jest wysyłany donikąd (w tym na GitHub).
     Żeby mieć realny plik, który możesz zapisać gdziekolwiek chcesz (na pendrive, w chmurze, w wybranym folderze),
     użyj eksportu danych poniżej.
   </div>
-  <div class="toolbar no-print">
+  <div class="toolbar">
     <button onclick="saveQuote()">Zapisz kosztorys do historii</button>
     <button class="secondary" onclick="exportOrPrint()">Drukuj / eksportuj do PDF</button>
     <button class="secondary" onclick="exportDataToFile()">Eksportuj dane do pliku (kopia zapasowa)</button>
@@ -207,7 +292,7 @@
 </div>
 
 <script>
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '2.0.0';
 const VERSION_CHECK_URL = 'https://agartek84.github.io/kosztorys-budowlany/version.json';
 
 const LS_TRADES='ke_trades_v3', LS_ITEMS='ke_items_v3', LS_PRICES='ke_prices_v3', LS_REGIONS='ke_regions_v3',
@@ -445,6 +530,12 @@ Object.keys(items).forEach(tradeId=>{
 let currentTrade = trades[0].id;
 let currentRegion = regions.includes('Mazowieckie') ? 'Mazowieckie' : regions[0];
 
+const LS_COMPANY = 'ke_company_v1', LS_COMBINED = 'ke_combined_quote_v1', LS_NEXT_SEQ = 'ke_next_quote_seq';
+let company = load(LS_COMPANY, {name:'', nip:'', phone:'', address:'', logo:''});
+let combinedQuote = load(LS_COMBINED, {lines:[]});
+let nextQuoteSeq = load(LS_NEXT_SEQ, 1);
+let quoteMode = 'single';
+
 function persist(){
   localStorage.setItem(LS_TRADES, JSON.stringify(trades));
   localStorage.setItem(LS_REGIONS, JSON.stringify(regions));
@@ -452,6 +543,72 @@ function persist(){
   localStorage.setItem(LS_PRICES, JSON.stringify(prices));
   localStorage.setItem(LS_HISTORY, JSON.stringify(history));
   localStorage.setItem(LS_LASTUPDATE, JSON.stringify(lastUpdate));
+}
+function persistCompany(){ localStorage.setItem(LS_COMPANY, JSON.stringify(company)); }
+function persistCombined(){ localStorage.setItem(LS_COMBINED, JSON.stringify(combinedQuote)); }
+function persistNextSeq(){ localStorage.setItem(LS_NEXT_SEQ, JSON.stringify(nextQuoteSeq)); }
+
+// ---------- Powiadomienia (toast) ----------
+function toast(message, type){
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = 'toast' + (type==='error' ? ' toast-error' : '');
+  el.textContent = message;
+  container.appendChild(el);
+  requestAnimationFrame(()=>el.classList.add('show'));
+  setTimeout(()=>{
+    el.classList.remove('show');
+    setTimeout(()=>el.remove(), 300);
+  }, 3500);
+}
+
+// ---------- Dane firmy ----------
+function initCompanyForm(){
+  document.getElementById('companyName').value = company.name || '';
+  document.getElementById('companyNip').value = company.nip || '';
+  document.getElementById('companyPhone').value = company.phone || '';
+  document.getElementById('companyAddress').value = company.address || '';
+  updateLogoPreview();
+}
+function updateLogoPreview(){
+  const img = document.getElementById('companyLogoPreview');
+  if(company.logo){ img.src = company.logo; img.style.display='inline-block'; }
+  else { img.style.display='none'; }
+}
+function saveCompanyInfo(){
+  company.name = document.getElementById('companyName').value;
+  company.nip = document.getElementById('companyNip').value;
+  company.phone = document.getElementById('companyPhone').value;
+  company.address = document.getElementById('companyAddress').value;
+  persistCompany();
+  toast('Dane firmy zapisane.');
+}
+function handleLogoUpload(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    company.logo = reader.result;
+    persistCompany();
+    updateLogoPreview();
+    toast('Logo zapisane.');
+  };
+  reader.readAsDataURL(file);
+}
+function removeLogo(){
+  company.logo = '';
+  persistCompany();
+  updateLogoPreview();
+  document.getElementById('companyLogoInput').value = '';
+}
+
+// ---------- Numeracja kosztorysów ----------
+function suggestedQuoteNumber(){
+  return 'K/' + new Date().getFullYear() + '/' + String(nextQuoteSeq).padStart(3,'0');
+}
+function bumpQuoteSeq(){
+  nextQuoteSeq++;
+  persistNextSeq();
 }
 function fmt(n){
   return (Math.round(n*100)/100).toLocaleString('pl-PL',{minimumFractionDigits:2, maximumFractionDigits:2})+' zł';
@@ -524,7 +681,7 @@ function duplicateTrade(){
   renderStaleBanner();
 }
 function deleteTrade(){
-  if(trades.length<=1){ alert('Musi zostać przynajmniej jeden zawód.'); return; }
+  if(trades.length<=1){ toast('Musi zostać przynajmniej jeden zawód.', 'error'); return; }
   const t = currentTradeObj();
   if(!confirm('Usunąć zawód "'+t.name+'" wraz z jego cennikiem?')) return;
   trades = trades.filter(x=>x.id!==currentTrade);
@@ -593,7 +750,7 @@ function duplicateRegion(){
   renderItems();
 }
 function deleteRegion(){
-  if(regions.length<=1){ alert('Musi zostać przynajmniej jeden region.'); return; }
+  if(regions.length<=1){ toast('Musi zostać przynajmniej jeden region.', 'error'); return; }
   if(!confirm('Usunąć region "'+currentRegion+'" wraz z cennikiem we wszystkich branżach?')) return;
   regions = regions.filter(r=>r!==currentRegion);
   trades.forEach(t=>{ if(prices[t.id]) delete prices[t.id][currentRegion]; });
@@ -631,8 +788,11 @@ function renderItems(){
   const body=document.getElementById('itemsBody');
   body.innerHTML='';
   const qty = currentQty();
+  const searchEl = document.getElementById('itemSearch');
+  const search = searchEl ? searchEl.value.trim().toLowerCase() : '';
   categoriesInUse().forEach(cat=>{
-    const catItems = currentItems().filter(i=>(i.cat||'Inne')===cat);
+    let catItems = currentItems().filter(i=>(i.cat||'Inne')===cat);
+    if(search) catItems = catItems.filter(i=>i.name.toLowerCase().includes(search));
     if(catItems.length===0) return;
     const catRow=document.createElement('tr');
     catRow.className='cat-row';
@@ -655,7 +815,10 @@ function renderItems(){
         <td class="num">${fmt((Number(p.labor)||0)+(Number(p.material)||0))}</td>
         <td class="num"><input type="number" min="0" step="1" value="${q}" onchange="updateQty('${it.id}', this.value)"></td>
         <td class="num">${fmt(((Number(p.labor)||0)+(Number(p.material)||0))*q)}</td>
-        <td class="no-print"><button class="danger" onclick="removeItem('${it.id}')">Usuń</button></td>
+        <td>
+          <button class="secondary icon-btn" onclick="addToCombined('${it.id}')" title="Dodaj do zbiorczego kosztorysu">➕</button>
+          <button class="danger" onclick="removeItem('${it.id}')">Usuń</button>
+        </td>
       `;
       body.appendChild(tr);
     });
@@ -740,28 +903,100 @@ function clearQuantities(){
   renderItems();
 }
 
-function renderTotals(){
+// ---------- Wspólna logika pozycji/kosztorysu (pojedyncza branża lub zbiorczy) ----------
+function getActiveLines(){
+  if(quoteMode==='combined'){
+    return combinedQuote.lines.map(l=>({...l}));
+  }
   ensurePricesForRegion(currentRegion);
-  let sumLabor=0, sumMaterial=0;
   const qty = currentQty();
-  currentItems().forEach(it=>{
-    const p=prices[currentTrade][currentRegion][it.id]||{labor:0,material:0};
-    const q=qty[it.id]||0;
-    sumLabor += (Number(p.labor)||0)*q;
-    sumMaterial += (Number(p.material)||0)*q;
+  return currentItems().map(it=>{
+    const p = prices[currentTrade][currentRegion][it.id] || {labor:0, material:0};
+    return {id:it.id, name:it.name, unit:it.unit, tradeName:currentTradeObj().name, labor:p.labor, material:p.material, qty:qty[it.id]||0};
   });
-  const discount = Number(document.getElementById('discountPct').value)||0;
-  const vatRate = Number(document.getElementById('vatRate').value)||0;
-  const rawNetto = sumLabor+sumMaterial;
-  const netto = rawNetto * (1 - discount/100);
+}
+function computeTotals(lines, discount, vatRate){
+  let sumLabor=0, sumMaterial=0;
+  lines.forEach(l=>{
+    sumLabor += (Number(l.labor)||0)*l.qty;
+    sumMaterial += (Number(l.material)||0)*l.qty;
+  });
+  const netto = (sumLabor+sumMaterial) * (1 - discount/100);
   const vat = netto * (vatRate/100);
   const brutto = netto + vat;
+  return {sumLabor, sumMaterial, netto, vat, brutto};
+}
+function renderTotals(){
+  const discount = Number(document.getElementById('discountPct').value)||0;
+  const vatRate = Number(document.getElementById('vatRate').value)||0;
+  const t = computeTotals(getActiveLines(), discount, vatRate);
 
-  document.getElementById('sumLabor').textContent=fmt(sumLabor);
-  document.getElementById('sumMaterial').textContent=fmt(sumMaterial);
-  document.getElementById('sumNetto').textContent=fmt(netto);
-  document.getElementById('sumVat').textContent=fmt(vat);
-  document.getElementById('sumBrutto').textContent=fmt(brutto);
+  document.getElementById('sumLabor').textContent=fmt(t.sumLabor);
+  document.getElementById('sumMaterial').textContent=fmt(t.sumMaterial);
+  document.getElementById('sumNetto').textContent=fmt(t.netto);
+  document.getElementById('sumVat').textContent=fmt(t.vat);
+  document.getElementById('sumBrutto').textContent=fmt(t.brutto);
+}
+
+// ---------- Kosztorys zbiorczy (wiele branż) ----------
+function setQuoteMode(mode){
+  quoteMode = mode;
+  document.getElementById('modeSingleBtn').classList.toggle('active', mode==='single');
+  document.getElementById('modeCombinedBtn').classList.toggle('active', mode==='combined');
+  document.getElementById('combinedLinesPanel').style.display = mode==='combined' ? 'block' : 'none';
+  if(mode==='combined') renderCombinedLines();
+  renderTotals();
+}
+function addToCombined(itemId){
+  ensurePricesForRegion(currentRegion);
+  const it = currentItems().find(i=>i.id===itemId);
+  if(!it) return;
+  const p = prices[currentTrade][currentRegion][itemId] || {labor:0, material:0};
+  const qty = currentQty()[itemId] || 1;
+  combinedQuote.lines.push({
+    tradeName: currentTradeObj().name,
+    name: it.name, unit: it.unit,
+    labor: p.labor, material: p.material, qty
+  });
+  persistCombined();
+  toast('Dodano "'+it.name+'" do kosztorysu zbiorczego.');
+  if(quoteMode==='combined'){ renderCombinedLines(); renderTotals(); }
+}
+function removeCombinedLine(index){
+  combinedQuote.lines.splice(index,1);
+  persistCombined();
+  renderCombinedLines();
+  renderTotals();
+}
+function clearCombinedLines(){
+  if(!confirm('Wyczyścić wszystkie pozycje ze zbiorczego kosztorysu?')) return;
+  combinedQuote.lines = [];
+  persistCombined();
+  renderCombinedLines();
+  renderTotals();
+}
+function renderCombinedLines(){
+  const body = document.getElementById('combinedLinesBody');
+  if(!body) return;
+  body.innerHTML = '';
+  if(combinedQuote.lines.length===0){
+    body.innerHTML = '<tr><td colspan="7" class="small">Brak pozycji. Kliknij "➕" przy pozycji w cenniku, żeby ją tu dodać.</td></tr>';
+    return;
+  }
+  combinedQuote.lines.forEach((l, idx)=>{
+    const unitPrice = (Number(l.labor)||0)+(Number(l.material)||0);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(l.tradeName)}</td>
+      <td>${escapeHtml(l.name)}</td>
+      <td>${escapeHtml(l.unit)}</td>
+      <td class="num">${fmt(unitPrice)}</td>
+      <td class="num">${l.qty}</td>
+      <td class="num">${fmt(unitPrice*l.qty)}</td>
+      <td><button class="danger" onclick="removeCombinedLine(${idx})">Usuń</button></td>
+    `;
+    body.appendChild(tr);
+  });
 }
 
 // ---------- Aktualizacja cen ----------
@@ -776,7 +1011,7 @@ function applyBulkUpdate(){
   const pct = Number(document.getElementById('bulkPct').value)||0;
   const target = document.getElementById('bulkTarget').value;
   const scope = document.getElementById('bulkScope').value;
-  if(pct===0){ alert('Podaj wartość procentową różną od zera (np. 5 lub -5).'); return; }
+  if(pct===0){ toast('Podaj wartość procentową różną od zera (np. 5 lub -5).', 'error'); return; }
   const regionsToUpdate = scope==='all' ? regions : [currentRegion];
   regionsToUpdate.forEach(r=>{
     ensurePricesForRegion(r);
@@ -789,7 +1024,7 @@ function applyBulkUpdate(){
   markUpdated();
   persist();
   renderItems();
-  alert('Zaktualizowano ceny o '+pct+'% w branży "'+currentTradeObj().name+'" dla: '+(scope==='all' ? 'wszystkich regionów' : currentRegion));
+  toast('Zaktualizowano ceny o '+pct+'% w branży "'+currentTradeObj().name+'" dla: '+(scope==='all' ? 'wszystkich regionów' : currentRegion));
 }
 function renderStaleBanner(){
   const lu = lastUpdate[currentTrade] || todayStr();
@@ -807,28 +1042,36 @@ function renderStaleBanner(){
 
 // ---------- Historia kosztorysów ----------
 function saveQuote(){
-  ensurePricesForRegion(currentRegion);
   const client = document.getElementById('clientName').value || '(bez nazwy)';
   const date = document.getElementById('quoteDate').value || todayStr();
+  const quoteNumber = document.getElementById('quoteNumber').value || '';
+  const validUntil = document.getElementById('validUntil').value || '';
+  const notes = document.getElementById('notesText').value || '';
   const vatRate = document.getElementById('vatRate').value;
   const discount = document.getElementById('discountPct').value;
-  const qty = currentQty();
-  const lines = currentItems().map(it=>({
-    id: it.id, name: it.name, unit: it.unit,
-    labor: prices[currentTrade][currentRegion][it.id].labor,
-    material: prices[currentTrade][currentRegion][it.id].material,
-    qty: qty[it.id]||0
-  })).filter(l=>l.qty>0);
+  const lines = getActiveLines().filter(l=>l.qty>0);
+
+  if(lines.length===0){
+    toast('Brak pozycji z ilością > 0 — nie ma czego zapisać.', 'error');
+    return;
+  }
 
   const entry = {
     id: Date.now(),
-    client, date, trade: currentTrade, tradeName: currentTradeObj().name, region: currentRegion, vatRate, discount, lines,
+    client, date, quoteNumber, validUntil, notes,
+    trade: quoteMode==='combined' ? '__combined__' : currentTrade,
+    tradeName: quoteMode==='combined' ? 'Zbiorczy (wiele branż)' : currentTradeObj().name,
+    region: currentRegion, vatRate, discount, lines,
     totalBrutto: document.getElementById('sumBrutto').textContent
   };
   history.unshift(entry);
   persist();
   renderHistory();
-  alert('Kosztorys zapisany w historii.');
+  if(quoteNumber){
+    bumpQuoteSeq();
+    document.getElementById('quoteNumber').value = suggestedQuoteNumber();
+  }
+  toast('Kosztorys zapisany w historii.');
 }
 function renderHistory(){
   const el=document.getElementById('historyList');
@@ -853,12 +1096,23 @@ function loadQuote(id){
   if(!h) return;
   document.getElementById('clientName').value = h.client==='(bez nazwy)' ? '' : h.client;
   document.getElementById('quoteDate').value = h.date;
+  document.getElementById('quoteNumber').value = h.quoteNumber || '';
+  document.getElementById('validUntil').value = h.validUntil || '';
+  document.getElementById('notesText').value = h.notes || '';
   document.getElementById('vatRate').value = h.vatRate;
   document.getElementById('discountPct').value = h.discount;
-  if(h.trade && trades.some(t=>t.id===h.trade)) currentTrade = h.trade;
-  if(regions.includes(h.region)) currentRegion = h.region;
-  quantities[currentTrade] = {};
-  h.lines.forEach(l=>{ quantities[currentTrade][l.id] = l.qty; });
+
+  if(h.trade === '__combined__'){
+    combinedQuote.lines = (h.lines||[]).map(l=>({...l}));
+    persistCombined();
+    setQuoteMode('combined');
+  } else {
+    if(h.trade && trades.some(t=>t.id===h.trade)) currentTrade = h.trade;
+    if(regions.includes(h.region)) currentRegion = h.region;
+    quantities[currentTrade] = {};
+    h.lines.forEach(l=>{ quantities[currentTrade][l.id] = l.qty; });
+    setQuoteMode('single');
+  }
   renderTradeTabs();
   renderRegionSelect();
   renderItems();
@@ -882,7 +1136,66 @@ document.getElementById('discountPct').addEventListener('input', renderTotals);
 document.getElementById('quoteDate').value = todayStr();
 
 // ---------- Drukowanie / eksport do PDF ----------
+function renderPrintSummary(){
+  const client = document.getElementById('clientName').value || '';
+  const date = document.getElementById('quoteDate').value || todayStr();
+  const quoteNumber = document.getElementById('quoteNumber').value || '';
+  const validUntil = document.getElementById('validUntil').value || '';
+  const notes = document.getElementById('notesText').value || '';
+  const vatRate = Number(document.getElementById('vatRate').value)||0;
+  const discount = Number(document.getElementById('discountPct').value)||0;
+
+  const lines = getActiveLines().filter(l=>l.qty>0);
+  const scopeLabel = quoteMode==='combined' ? 'Kosztorys zbiorczy (wiele branż)' : (currentTradeObj().name+' — '+currentRegion);
+  const t = computeTotals(lines, discount, vatRate);
+
+  const rows = lines.map((l,i)=>{
+    const unitPrice = (Number(l.labor)||0)+(Number(l.material)||0);
+    const value = unitPrice*l.qty;
+    const tradeTag = quoteMode==='combined' ? ` <span class="ps-trade">(${escapeHtml(l.tradeName)})</span>` : '';
+    return `<tr>
+      <td>${i+1}</td>
+      <td>${escapeHtml(l.name)}${tradeTag}</td>
+      <td>${escapeHtml(l.unit)}</td>
+      <td class="num">${l.qty}</td>
+      <td class="num">${fmt(unitPrice)}</td>
+      <td class="num">${fmt(value)}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('printSummary').innerHTML = `
+    <div class="ps-header">
+      ${company.logo ? `<img src="${company.logo}" class="ps-logo">` : ''}
+      <div class="ps-company">
+        <strong>${escapeHtml(company.name||'')}</strong><br>
+        ${company.nip?('NIP: '+escapeHtml(company.nip)+'<br>'):''}
+        ${company.phone?(escapeHtml(company.phone)+'<br>'):''}
+        ${company.address?escapeHtml(company.address):''}
+      </div>
+    </div>
+    <div class="ps-title">Kosztorys${quoteNumber?(' nr '+escapeHtml(quoteNumber)):''}</div>
+    <div class="ps-meta">
+      <div>Data: ${escapeHtml(date)}</div>
+      ${validUntil?`<div>Ważny do: ${escapeHtml(validUntil)}</div>`:''}
+      <div>Zakres: ${escapeHtml(scopeLabel)}</div>
+      ${client?`<div>Klient: ${escapeHtml(client)}</div>`:''}
+    </div>
+    <table class="ps-table">
+      <thead><tr><th>Lp.</th><th>Pozycja</th><th>Jedn.</th><th>Ilość</th><th>Cena jedn.</th><th>Wartość</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6">Brak pozycji — wpisz ilości przed drukiem.</td></tr>'}</tbody>
+    </table>
+    <div class="ps-totals">
+      <div>Suma robocizny netto: ${fmt(t.sumLabor)}</div>
+      <div>Suma materiału netto: ${fmt(t.sumMaterial)}</div>
+      <div>Razem netto (po rabacie ${discount}%): ${fmt(t.netto)}</div>
+      <div>VAT (${vatRate}%): ${fmt(t.vat)}</div>
+      <div class="ps-grand">Razem brutto: ${fmt(t.brutto)}</div>
+    </div>
+    ${notes?`<div class="ps-notes"><strong>Uwagi / warunki płatności:</strong><br>${escapeHtml(notes)}</div>`:''}
+  `;
+}
 function exportOrPrint(){
+  renderPrintSummary();
   // Electron (aplikacja Windows) nie ma wbudowanego podglądu wydruku Chrome —
   // zamiast window.print() korzystamy z natywnego eksportu do PDF z wyborem miejsca zapisu.
   if(window.electronAPI && window.electronAPI.exportPdf){
@@ -897,7 +1210,7 @@ function collectAllData(){
   return {
     appVersion: APP_VERSION,
     exportedAt: new Date().toISOString(),
-    trades, regions, items, prices, history, lastUpdate
+    trades, regions, items, prices, history, lastUpdate, company, combinedQuote, nextQuoteSeq
   };
 }
 async function exportDataToFile(){
@@ -914,7 +1227,7 @@ async function exportDataToFile(){
       const writable = await handle.createWritable();
       await writable.write(json);
       await writable.close();
-      alert('Dane wyeksportowane do pliku: '+handle.name);
+      toast('Dane wyeksportowane do pliku: '+handle.name);
       return;
     }catch(e){
       if(e.name === 'AbortError') return; // użytkownik anulował okno zapisu
@@ -936,9 +1249,9 @@ function importDataFromFile(event){
   reader.onload = () => {
     let data;
     try{ data = JSON.parse(reader.result); }
-    catch(e){ alert('Nie udało się odczytać pliku — to nie jest poprawny plik danych tej aplikacji.'); return; }
+    catch(e){ toast('Nie udało się odczytać pliku — to nie jest poprawny plik danych tej aplikacji.', 'error'); return; }
     if(!data || !Array.isArray(data.trades)){
-      alert('Ten plik nie zawiera danych kosztorysu.');
+      toast('Ten plik nie zawiera danych kosztorysu.', 'error');
       return;
     }
     if(!confirm('To nadpisze WSZYSTKIE obecne dane (cenniki, historię) danymi z pliku'+(data.exportedAt?(' (eksport z '+data.exportedAt.slice(0,10)+')'):'')+'. Kontynuować?')) return;
@@ -949,19 +1262,28 @@ function importDataFromFile(event){
     prices = data.prices || {};
     history = data.history || [];
     lastUpdate = data.lastUpdate || {};
+    company = data.company || {name:'', nip:'', phone:'', address:'', logo:''};
+    combinedQuote = data.combinedQuote || {lines:[]};
+    nextQuoteSeq = data.nextQuoteSeq || 1;
     quantities = {};
     trades.forEach(t=>{ quantities[t.id]={}; });
     currentTrade = trades[0].id;
     currentRegion = regions.includes('Mazowieckie') ? 'Mazowieckie' : regions[0];
 
     persist();
+    persistCompany();
+    persistCombined();
+    persistNextSeq();
+    setQuoteMode('single');
+    initCompanyForm();
+    document.getElementById('quoteNumber').value = suggestedQuoteNumber();
     renderTradeTabs();
     renderRegionSelect();
     renderItems();
     renderHistory();
     renderStaleBanner();
     event.target.value = '';
-    alert('Dane zaimportowane pomyślnie.');
+    toast('Dane zaimportowane pomyślnie.');
   };
   reader.readAsText(file);
 }
@@ -997,11 +1319,14 @@ async function checkForUpdates(){
 }
 
 document.getElementById('appVersionLabel').textContent = APP_VERSION;
+document.getElementById('quoteNumber').value = suggestedQuoteNumber();
 
+initCompanyForm();
 renderTradeTabs();
 renderRegionSelect();
 renderItems();
 renderHistory();
+renderCombinedLines();
 renderStaleBanner();
 persist();
 </script>
